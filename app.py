@@ -3,6 +3,7 @@ import requests
 from PIL import Image
 import io
 import base64
+import os
 
 st.set_page_config(
     page_title="Детекция автотранспорта AI",
@@ -11,6 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Обязательно проверь, что тут твоя ссылка на Render!
 API_URL = "https://vehicle-detection-api.onrender.com/predict"
 
 # --- САЙДБАР ---
@@ -44,6 +46,26 @@ with st.sidebar:
     st.markdown("### Исходные данные")
     uploaded_file = st.file_uploader("Загрузите фото (JPG/PNG)", type=["jpg", "jpeg", "png"])
 
+# --- ЛОГИКА ДЕФОЛТНОЙ КАРТИНКИ ---
+image_source = None
+file_name = ""
+file_bytes = None
+file_mime = ""
+
+if uploaded_file is not None:
+    # Если пользователь сам загрузил фото
+    image_source = uploaded_file
+    file_name = uploaded_file.name
+    file_bytes = uploaded_file.getvalue()
+    file_mime = uploaded_file.type
+elif os.path.exists("sample.jpg"):
+    # Если фото нет, но есть дефолтная картинка в проекте
+    image_source = "sample.jpg"
+    file_name = "sample.jpg"
+    with open("sample.jpg", "rb") as f:
+        file_bytes = f.read()
+    file_mime = "image/jpeg"
+
 # --- ВКЛАДКИ (TABS) ---
 tab_main, tab_about = st.tabs(["🔍 Детекция объектов", "ℹ️ О проекте (Стек)"])
 
@@ -51,8 +73,8 @@ with tab_main:
     st.title("CV-система детекции автотранспорта")
     model_param = "fast" if "Nano" in model_type else "accurate"
 
-    if uploaded_file is not None:
-        # КНОПКА НА САМОМ ВЕРХУ
+    # Если у нас есть хоть какая-то картинка (загруженная или дефолтная)
+    if image_source is not None:
         analyze_button = st.button("🚀 Запустить анализ изображения", type="primary", use_container_width=True)
         st.divider()
 
@@ -64,7 +86,8 @@ with tab_main:
                         "filter_class": filter_class,
                         "conf_threshold": conf_threshold
                     }
-                    files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
+                    # Отправляем подготовленные байты
+                    files = {"file": (file_name, file_bytes, file_mime)}
                     
                     response = requests.post(API_URL, data=data, files=files)
                     
@@ -74,7 +97,6 @@ with tab_main:
                         result_image = Image.open(io.BytesIO(image_data))
                         counts = result.get("counts", {})
                         
-                        # 1. ВЫВОД СТАТИСТИКИ (Самое главное - сверху)
                         if show_legend:
                             st.subheader("📊 Статистика обнаружения")
                             if counts:
@@ -87,13 +109,12 @@ with tab_main:
                             else:
                                 st.warning("Ни одного объекта не найдено. Попробуйте снизить порог уверенности.")
                             
-                            st.markdown("<br>", unsafe_allow_html=True) # Небольшой отступ
+                            st.markdown("<br>", unsafe_allow_html=True) 
                         
-                        # 2. ВЫВОД КАРТИНОК (Под статистикой, для сравнения До/После)
-                        st.subheader("Визуализация")
+                        st.subheader("📷 Визуализация")
                         col1, col2 = st.columns(2)
                         with col1:
-                            st.image(uploaded_file, caption="Исходное изображение", use_container_width=True)
+                            st.image(image_source, caption="Исходное изображение", use_container_width=True)
                         with col2:
                             st.image(result_image, caption="Результат детекции", use_container_width=True)
                             
@@ -101,15 +122,19 @@ with tab_main:
                         st.error(f"Ошибка сервера: {response.status_code}")
                         
                 except Exception as e:
-                    st.error(f"Нет связи с Backend-сервером. Убедитесь, что FastAPI запущен. ({e})")
+                    st.error(f"Нет связи с Backend-сервером. Убедитесь, что сервер на Render активен. ({e})")
         else:
-            # ДО НАЖАТИЯ КНОПКИ: Показываем аккуратное превью по центру
-            st.info("Нажмите кнопку «Запустить анализ изображения» выше, чтобы получить результат.")
+            # ДО НАЖАТИЯ КНОПКИ
+            if uploaded_file is None:
+                st.info("💡 Используется тестовое изображение по умолчанию. Вы можете загрузить своё фото в меню слева.")
+            else:
+                st.info("Нажмите кнопку «Запустить анализ изображения» выше, чтобы получить результат.")
+                
             col_spacer1, col_center, col_spacer2 = st.columns([1, 2, 1])
             with col_center:
-                st.image(uploaded_file, caption="Предварительный просмотр", use_container_width=True)
+                st.image(image_source, caption="Предварительный просмотр", use_container_width=True)
     else:
-        st.info("Загрузите изображение в меню слева для начала работы.")
+        st.warning("⚠️ Для начала работы загрузите изображение в меню слева или поместите файл sample.jpg в папку с проектом.")
 
 with tab_about:
     st.markdown("### Техническое описание проекта")
