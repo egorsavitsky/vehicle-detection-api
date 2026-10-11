@@ -6,19 +6,16 @@ import numpy as np
 import base64
 from PIL import Image, ImageDraw, ImageFont
 import io
-import torch # НОВЫЙ ИМПОРТ
+import torch
+import gc # Сборщик мусора для контроля памяти
 
-# ОПТИМИЗАЦИЯ ДЛЯ ОБЛАКА: Запрещаем PyTorch плодить потоки
-# Это спасет бесплатный сервер Render от зависания
 torch.set_num_threads(1)
 
 app = FastAPI(title="Vehicle Detection API")
 
-# ЗАГЛУШКИ
-models = {
-    "fast": YOLO("nano_ready.pt"),
-    "accurate": YOLO("medium_ready.pt") 
-}
+# Глобальные переменные для хранения только одной активной модели
+active_model = None
+active_model_name = None
 
 CLASS_NAMES = {
     2: "Легковое авто", 3: "Легковое авто", 4: "Фургон",         
@@ -39,10 +36,9 @@ COLORS = {
     "Автобус": (231, 76, 60), "Неизвестно": (149, 165, 166)     
 }
 
-# HEALTH CHECK: Эндпоинт для проверки, жив ли сервер
 @app.get("/")
 def health_check():
-    return {"status": "Сервер успешно работает и ждет картинок!"}
+    return {"status": "Сервер работает и ждет картинок!"}
 
 @app.post("/predict")
 async def predict(
@@ -51,19 +47,29 @@ async def predict(
     conf_threshold: float = Form(0.25),
     file: UploadFile = File(...)
 ):
-    print(f"ЛОГ: Получен запрос! Модель: {model_type}, Фильтр: {filter_class}")
+    global active_model, active_model_name
     
+    print(f"ЛОГ: Запрос получен. Требуется модель: {model_type}")
+    target_weights = "nano_ready.pt" if model_type == "fast" else "medium_ready.pt"
+    
+    # ЛЕНИВАЯ ЗАГРУЗКА И ОЧИСТКА ПАМЯТИ
+    if active_model_name != target_weights:
+        print(f"ЛОГ: Освобождаем память. Загружаем {target_weights}...")
+        active_model = None
+        gc.collect() # Принудительно чистим RAM
+        active_model = YOLO(target_weights)
+        active_model_name = target_weights
+
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-    selected_model = models.get(model_type, models["fast"])
     target_classes = CLASS_MAPPING.get(filter_class, CLASS_MAPPING["Все"])
 
     print("ЛОГ: Запускаем инференс YOLO...")
-    results = selected_model(image, classes=target_classes, conf=conf_threshold)
+    results = active_model(image, classes=target_classes, conf=conf_threshold)
     
-    print("ЛОГ: Инференс завершен. Рисуем боксы...")
+    print("ЛОГ: Рисуем боксы...")
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     pil_image = Image.fromarray(image_rgb)
     draw = ImageDraw.Draw(pil_image)
@@ -100,5 +106,5 @@ async def predict(
     pil_image.save(buffered, format="JPEG")
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    print("ЛОГ: Картинка обработана, отправляем ответ Frontend-у.")
+    print("ЛОГ: Успех! Отправляем ответ.")
     return JSONResponse(content={"image_base64": img_str, "counts": counts})
