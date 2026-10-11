@@ -6,24 +6,23 @@ import numpy as np
 import base64
 from PIL import Image, ImageDraw, ImageFont
 import io
+import torch # НОВЫЙ ИМПОРТ
+
+# ОПТИМИЗАЦИЯ ДЛЯ ОБЛАКА: Запрещаем PyTorch плодить потоки
+# Это спасет бесплатный сервер Render от зависания
+torch.set_num_threads(1)
 
 app = FastAPI(title="Vehicle Detection API")
 
-# ЗАГЛУШКИ: потом заменишь "yolov8n.pt" на "nano_best.pt" и "medium_best.pt"
+# ЗАГЛУШКИ
 models = {
-    "fast": YOLO("yolov8n.pt"),    
-    "accurate": YOLO("yolov8n.pt") 
+    "fast": YOLO("nano_ready.pt"),
+    "accurate": YOLO("medium_ready.pt") 
 }
 
-# Временный маппинг
 CLASS_NAMES = {
-    2: "Легковое авто", 
-    3: "Легковое авто",  
-    4: "Фургон",         
-    5: "Грузовик",       
-    6: "Трейлер",        
-    7: "Грузовик",       
-    9: "Автобус"         
+    2: "Легковое авто", 3: "Легковое авто", 4: "Фургон",         
+    5: "Грузовик", 6: "Трейлер", 7: "Грузовик", 9: "Автобус"         
 }
 
 CLASS_MAPPING = {
@@ -35,13 +34,15 @@ CLASS_MAPPING = {
 }
 
 COLORS = {
-    "Легковое авто": (46, 204, 113),  
-    "Фургон": (241, 196, 15),         
-    "Грузовик": (230, 126, 34),       
-    "Трейлер": (211, 84, 0),          
-    "Автобус": (231, 76, 60),         
-    "Неизвестно": (149, 165, 166)     
+    "Легковое авто": (46, 204, 113), "Фургон": (241, 196, 15),         
+    "Грузовик": (230, 126, 34), "Трейлер": (211, 84, 0),          
+    "Автобус": (231, 76, 60), "Неизвестно": (149, 165, 166)     
 }
+
+# HEALTH CHECK: Эндпоинт для проверки, жив ли сервер
+@app.get("/")
+def health_check():
+    return {"status": "Сервер успешно работает и ждет картинок!"}
 
 @app.post("/predict")
 async def predict(
@@ -50,6 +51,8 @@ async def predict(
     conf_threshold: float = Form(0.25),
     file: UploadFile = File(...)
 ):
+    print(f"ЛОГ: Получен запрос! Модель: {model_type}, Фильтр: {filter_class}")
+    
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -57,19 +60,18 @@ async def predict(
     selected_model = models.get(model_type, models["fast"])
     target_classes = CLASS_MAPPING.get(filter_class, CLASS_MAPPING["Все"])
 
+    print("ЛОГ: Запускаем инференс YOLO...")
     results = selected_model(image, classes=target_classes, conf=conf_threshold)
     
+    print("ЛОГ: Инференс завершен. Рисуем боксы...")
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     pil_image = Image.fromarray(image_rgb)
     draw = ImageDraw.Draw(pil_image)
     
-    # ИСПОЛЬЗУЕМ СТАНДАРТНЫЙ ШРИФТ ВМЕСТО СКАЧИВАНИЯ
     try:
-        # Пытаемся загрузить локальный файл, размер шрифта динамически зависит от картинки
         font_size = max(16, int(pil_image.width * 0.02))
-        font = ImageFont.truetype("roboto-regular.ttf", font_size)
-    except IOError:
-        # Если вдруг ты забыл положить файл, скрипт не упадет, а вернет квадратики
+        font = ImageFont.truetype("Roboto-Regular.ttf", font_size)
+    except:
         font = ImageFont.load_default()
 
     counts = {}
@@ -98,4 +100,5 @@ async def predict(
     pil_image.save(buffered, format="JPEG")
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
+    print("ЛОГ: Картинка обработана, отправляем ответ Frontend-у.")
     return JSONResponse(content={"image_base64": img_str, "counts": counts})
