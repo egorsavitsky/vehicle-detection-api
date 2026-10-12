@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 # Обязательно проверь, что тут твоя ссылка на Render!
-API_URL = "https://vehicle-detection-api.onrender.com/predict"
+API_URL = "http://127.0.0.1:8000/predict"
 
 # --- САЙДБАР ---
 with st.sidebar:
@@ -37,10 +37,11 @@ with st.sidebar:
         min_value=0.10, max_value=0.95, value=0.30, step=0.05,
         help="Чем выше порог, тем меньше ложных срабатываний, но модель может пропустить неочевидные объекты."
     )
-    
+
     st.divider()
     st.markdown("### Отображение")
     show_legend = st.checkbox("Показывать статистику", value=True)
+    show_labels = st.checkbox("Показывать названия классов на фото", value=True)
     
     st.divider()
     st.markdown("### Исходные данные")
@@ -84,7 +85,8 @@ with tab_main:
                     data = {
                         "model_type": model_param, 
                         "filter_class": filter_class,
-                        "conf_threshold": conf_threshold
+                        "conf_threshold": conf_threshold,
+                        "show_labels": show_labels
                     }
                     # Отправляем подготовленные байты
                     files = {"file": (file_name, file_bytes, file_mime)}

@@ -45,6 +45,7 @@ async def predict(
     model_type: str = Form("fast"), 
     filter_class: str = Form("Все"),
     conf_threshold: float = Form(0.25),
+    show_labels: bool = Form(True),
     file: UploadFile = File(...)
 ):
     global active_model, active_model_name
@@ -75,7 +76,8 @@ async def predict(
     draw = ImageDraw.Draw(pil_image)
     
     try:
-        font_size = max(16, int(pil_image.width * 0.02))
+        # <-- УМЕНЬШИЛИ ШРИФТ: было 0.02, стало 0.012 (и минимальный размер 12 вместо 16)
+        font_size = max(12, int(pil_image.width * 0.012))
         font = ImageFont.truetype("Roboto-Regular.ttf", font_size)
     except:
         font = ImageFont.load_default()
@@ -92,15 +94,16 @@ async def predict(
         x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
         color = COLORS.get(class_name, (255, 255, 255))
         
-        draw.rectangle([x1, y1, x2, y2], outline=color, width=4)
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
         
-        text = f"{class_name} ({conf:.2f})"
-        text_bbox = draw.textbbox((x1, y1), text, font=font)
-        text_w = text_bbox[2] - text_bbox[0]
-        text_h = text_bbox[3] - text_bbox[1]
-        
-        draw.rectangle([x1, y1, x1 + text_w + 8, y1 + text_h + 8], fill=color)
-        draw.text((x1 + 4, y1 + 2), text, fill=(0, 0, 0), font=font)
+        if show_labels:
+            text = f"{class_name} ({conf:.2f})"
+            text_bbox = draw.textbbox((x1, y1), text, font=font)
+            text_w = text_bbox[2] - text_bbox[0]
+            text_h = text_bbox[3] - text_bbox[1]
+            
+            draw.rectangle([x1, y1, x1 + text_w + 8, y1 + text_h + 8], fill=color)
+            draw.text((x1 + 4, y1 + 2), text, fill=(0, 0, 0), font=font)
 
     buffered = io.BytesIO()
     pil_image.save(buffered, format="JPEG")
